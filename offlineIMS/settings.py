@@ -47,7 +47,7 @@ INSTALLED_APPS = [
     
     # Local apps
     "users",
-    "inventory"
+    "inventory",
     "projects",
     "bookings",
     "integration",

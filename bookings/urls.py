@@ -4,7 +4,8 @@ from .views import (
     WorkspaceViewSet,
     BookingSlotViewSet,
     EquipmentBookingViewSet,
-    WorkspaceBookingViewSet
+    WorkspaceBookingViewSet,
+    CalendarView
 )
 
 router = DefaultRouter()
@@ -15,4 +16,5 @@ router.register(r'workspace-bookings', WorkspaceBookingViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('calendar/', CalendarView.as_view(), name='booking-calendar'), 
 ]

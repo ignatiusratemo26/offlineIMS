@@ -321,3 +321,136 @@ class WorkspaceBookingViewSet(viewsets.ModelViewSet):
         booking.save()
         
         return Response(WorkspaceBookingSerializer(booking).data)
+    
+
+
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
+from django.utils import timezone
+from datetime import date, timedelta, datetime
+from users.permissions import IsAdminUser, IsLabManagerUser, IsTechnicianUser
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from django.urls import path
+
+# Add this class for the calendar endpoint
+class CalendarView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Parse date range parameters
+        start_date_str = request.query_params.get('start')
+        end_date_str = request.query_params.get('end')
+        resource_type = request.query_params.get('resource_type')
+        equipment_id = request.query_params.get('equipment_id')
+        workspace_id = request.query_params.get('workspace_id')
+        status_param = request.query_params.get('status')
+        lab = request.query_params.get('lab')
+        
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date() if start_date_str else date.today()
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date() if end_date_str else (date.today() + timedelta(days=30))
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Please use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Initialize result
+        calendar_events = []
+        
+        # Get equipment bookings
+        equipment_bookings = EquipmentBooking.objects.filter(
+            slot__date__gte=start_date,
+            slot__date__lte=end_date
+        )
+        
+        # Apply filters for equipment bookings
+        if status_param:
+            equipment_bookings = equipment_bookings.filter(status=status_param)
+        
+        if equipment_id:
+            equipment_bookings = equipment_bookings.filter(equipment_id=equipment_id)
+        
+        if lab:
+            equipment_bookings = equipment_bookings.filter(equipment__lab=lab)
+        
+        # Get workspace bookings
+        workspace_bookings = WorkspaceBooking.objects.filter(
+            slot__date__gte=start_date,
+            slot__date__lte=end_date
+        )
+        
+        # Apply filters for workspace bookings
+        if status_param:
+            workspace_bookings = workspace_bookings.filter(status=status_param)
+        
+        if workspace_id:
+            workspace_bookings = workspace_bookings.filter(workspace_id=workspace_id)
+        
+        if lab:
+            workspace_bookings = workspace_bookings.filter(workspace__lab=lab)
+        
+        # Filter by resource type if specified
+        if resource_type == 'EQUIPMENT':
+            workspace_bookings = WorkspaceBooking.objects.none()
+        elif resource_type == 'WORKSPACE':
+            equipment_bookings = EquipmentBooking.objects.none()
+        
+        # Process equipment bookings
+        for booking in equipment_bookings:
+            slot = booking.slot
+            event = {
+                'id': f"equipment_{booking.id}",
+                'title': f"{booking.equipment.name} - {booking.user.get_full_name()}",
+                'start': f"{slot.date}T{slot.start_time}",
+                'end': f"{slot.date}T{slot.end_time}",
+                'resourceType': 'EQUIPMENT',
+                'resourceId': booking.equipment.id,
+                'resourceName': booking.equipment.name,
+                'status': booking.status,
+                'userId': booking.user.id,
+                'userName': booking.user.get_full_name(),
+                'lab': booking.equipment.lab,
+                'purpose': booking.purpose,
+                'projectName': booking.project_name,
+                'notes': booking.notes,
+                'color': self._get_status_color(booking.status)
+            }
+            calendar_events.append(event)
+        
+        # Process workspace bookings
+        for booking in workspace_bookings:
+            slot = booking.slot
+            event = {
+                'id': f"workspace_{booking.id}",
+                'title': f"{booking.workspace.name} - {booking.user.get_full_name()}",
+                'start': f"{slot.date}T{slot.start_time}",
+                'end': f"{slot.date}T{slot.end_time}",
+                'resourceType': 'WORKSPACE',
+                'resourceId': booking.workspace.id,
+                'resourceName': booking.workspace.name,
+                'status': booking.status,
+                'userId': booking.user.id,
+                'userName': booking.user.get_full_name(),
+                'lab': booking.workspace.lab,
+                'purpose': booking.purpose,
+                'projectName': booking.project_name,
+                'participantsCount': booking.participants_count,
+                'notes': booking.notes,
+                'color': self._get_status_color(booking.status)
+            }
+            calendar_events.append(event)
+        
+        return Response(calendar_events)
+    
+    def _get_status_color(self, status):
+        """Return a color code for each booking status."""
+        status_colors = {
+            'PENDING': '#FFC107',   # Yellow
+            'APPROVED': '#4CAF50',  # Green
+            'REJECTED': '#F44336',  # Red
+            'CANCELLED': '#9E9E9E', # Gray
+            'COMPLETED': '#2196F3'  # Blue
+        }
+        return status_colors.get(status, '#9C27B0')  # Default purple

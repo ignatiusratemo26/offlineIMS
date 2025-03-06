@@ -9,6 +9,7 @@ from .permissions import IsAdminUser, IsSameUserOrAdmin
 User = get_user_model()
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    permission_classes = [permissions.AllowAny]
     serializer_class = CustomTokenObtainPairSerializer
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -21,13 +22,20 @@ class UserViewSet(viewsets.ModelViewSet):
         if self.action in ['create']:
             return UserSerializer
         return UserUpdateSerializer
-    
+
     def get_permissions(self):
         if self.action == 'create':
-            return [permissions.IsAuthenticated(), IsAdminUser()]
+            return [permissions.AllowAny()]
         elif self.action in ['update', 'partial_update', 'destroy']:
             return [permissions.IsAuthenticated(), IsSameUserOrAdmin()]
         return [permissions.IsAuthenticated()]
+        
+    # def get_permissions(self):
+    #     if self.action == 'create':
+    #         return [permissions.IsAuthenticated(), IsAdminUser()]
+    #     elif self.action in ['update', 'partial_update', 'destroy']:
+    #         return [permissions.IsAuthenticated(), IsSameUserOrAdmin()]
+    #     return [permissions.IsAuthenticated()]
     
     def get_queryset(self):
         user = self.request.user

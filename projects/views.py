@@ -80,6 +80,46 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response({"message": f"User {user.username} removed from project team"})
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+    @action(detail=True, methods=['put'])
+    def update_team_member(self, request, pk=None):
+        project = self.get_object()
+        user_id = request.data.get('user_id')
+        role = request.data.get('role')
+        
+        if not user_id:
+            return Response({"error": "User ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not role:
+            return Response({"error": "Role is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+            
+            # First check if user is a team member
+            if user not in project.team_members.all():
+                return Response({"error": "User is not a member of this project"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update the role (this depends on how your ProjectMember model is structured)
+            from .models import ProjectMember
+            try:
+                project_member = ProjectMember.objects.get(project=project, user=user)
+                project_member.role = role
+                project_member.save()
+                return Response({
+                    "message": f"Role updated for user {user.username}",
+                    "user_id": user.id,
+                    "role": role
+                })
+            except ProjectMember.DoesNotExist:
+                # If using a ManyToMany relationship directly without a through model
+                # You might need another approach depending on your model structure
+                return Response({"error": "Project member relationship not found"}, status=status.HTTP_404_NOT_FOUND)
+                
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
 class ProjectDocumentViewSet(viewsets.ModelViewSet):
     queryset = ProjectDocument.objects.all()

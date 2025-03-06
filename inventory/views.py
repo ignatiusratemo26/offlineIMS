@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, filters, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.permissions import OR
 from django.utils import timezone
 from .models import Category, Equipment, MaintenanceRecord, EquipmentUsageLog, EquipmentTransfer
 from .serializers import (
@@ -19,7 +20,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser() | IsTechnicianUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
 
 class EquipmentViewSet(viewsets.ModelViewSet):
@@ -35,7 +39,10 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser() | IsTechnicianUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
     
     def get_queryset(self):
@@ -163,6 +170,25 @@ class EquipmentViewSet(viewsets.ModelViewSet):
         return Response(MaintenanceRecordSerializer(maintenance).data)
     
     @action(detail=True, methods=['post'])
+    def upload_image(self, request, pk=None):
+        equipment = self.get_object()
+        
+        if 'image' not in request.FILES:
+            return Response(
+                {"error": "No image file provided."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        image_file = request.FILES['image']
+        equipment.image = image_file
+        equipment.save()
+        
+        return Response(
+            {"message": "Image uploaded successfully", "equipment": EquipmentSerializer(equipment).data},
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'])
     def transfer(self, request, pk=None):
         equipment = self.get_object()
         to_lab = request.data.get('to_lab')
@@ -206,7 +232,10 @@ class MaintenanceRecordViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser() | IsTechnicianUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
     
     def get_queryset(self):
@@ -267,7 +296,10 @@ class EquipmentTransferViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
     
     def get_queryset(self):

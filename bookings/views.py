@@ -4,7 +4,9 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 from django.utils import timezone
+from rest_framework.pagination import PageNumberPagination
 from datetime import date, timedelta
+from rest_framework.permissions import OR
 
 from .models import Workspace, BookingSlot, EquipmentBooking, WorkspaceBooking
 from .serializers import (
@@ -24,7 +26,10 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser() | IsTechnicianUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
     
     @action(detail=True, methods=['get'])
@@ -64,7 +69,10 @@ class BookingSlotViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [permissions.IsAuthenticated(), IsAdminUser() | IsLabManagerUser()]
+            return [
+                permissions.IsAuthenticated(),
+                OR(IsAdminUser(), OR(IsLabManagerUser(), IsTechnicianUser()))
+            ]
         return [permissions.IsAuthenticated()]
     
     @action(detail=False, methods=['get'])
@@ -83,6 +91,76 @@ class BookingSlotViewSet(viewsets.ModelViewSet):
         
         slots = BookingSlot.objects.filter(date__gte=start_date, date__lte=end_date).order_by('date', 'start_time')
         return Response(BookingSlotSerializer(slots, many=True).data)
+        
+    @action(detail=False, methods=['get', 'post'])
+    def find_or_create(self, request):
+        # Get parameters
+        date_param = request.query_params.get('date') or request.data.get('date')
+        start_time_param = request.query_params.get('start_time') or request.data.get('start_time')
+        end_time_param = request.query_params.get('end_time') or request.data.get('end_time')
+        
+        # Validate parameters
+        if not all([date_param, start_time_param, end_time_param]):
+            return Response(
+                {"error": "Missing required parameters: date, start_time, end_time"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse date
+        try:
+            booking_date = date.fromisoformat(date_param)
+        except ValueError:
+            return Response(
+                {"error": "Invalid date format. Please use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse times
+        try:
+            from datetime import datetime
+            start_time = datetime.strptime(start_time_param, '%H:%M:%S').time()
+            end_time = datetime.strptime(end_time_param, '%H:%M:%S').time()
+        except ValueError:
+            return Response(
+                {"error": "Invalid time format. Please use HH:MM:SS."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if start time is before end time
+        if start_time >= end_time:
+            return Response(
+                {"error": "Start time must be before end time."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Try to find an existing slot
+        try:
+            slot = BookingSlot.objects.get(
+                date=booking_date,
+                start_time=start_time,
+                end_time=end_time
+            )
+            created = False
+        except BookingSlot.DoesNotExist:
+            # Create a new slot if permission allows
+            if request.user.is_admin or request.user.is_lab_manager:
+                slot = BookingSlot.objects.create(
+                    date=booking_date,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+                created = True
+            else:
+                return Response(
+                    {"error": "Slot not found and you don't have permission to create new slots."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        return Response({
+            "slot": BookingSlotSerializer(slot).data,
+            "created": created
+        })
+
 
 class EquipmentBookingViewSet(viewsets.ModelViewSet):
     queryset = EquipmentBooking.objects.all()
@@ -454,3 +532,342 @@ class CalendarView(APIView):
             'COMPLETED': '#2196F3'  # Blue
         }
         return status_colors.get(status, '#9C27B0')  # Default purple
+
+
+class MyBookingsPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+class MyBookingsView(APIView):
+    permission_classes = [IsAuthenticated]
+    pagination_class = MyBookingsPagination
+    
+    def get(self, request):
+        # Get query parameters
+        search = request.query_params.get('search', '')
+        status = request.query_params.get('status', '')
+        resource_type = request.query_params.get('resource_type', '')
+        lab = request.query_params.get('lab', '')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 10))
+        
+        # Get user's equipment bookings
+        equipment_bookings = EquipmentBooking.objects.filter(user=request.user)
+        
+        # Apply filters
+        if search:
+            equipment_bookings = equipment_bookings.filter(
+                Q(equipment__name__icontains=search) |
+                Q(purpose__icontains=search) |
+                Q(project_name__icontains=search)
+            )
+        
+        if status:
+            equipment_bookings = equipment_bookings.filter(status=status)
+            
+        if lab:
+            equipment_bookings = equipment_bookings.filter(equipment__lab=lab)
+            
+        # Get user's workspace bookings
+        workspace_bookings = WorkspaceBooking.objects.filter(user=request.user)
+        
+        # Apply filters
+        if search:
+            workspace_bookings = workspace_bookings.filter(
+                Q(workspace__name__icontains=search) |
+                Q(purpose__icontains=search) |
+                Q(project_name__icontains=search)
+            )
+        
+        if status:
+            workspace_bookings = workspace_bookings.filter(status=status)
+            
+        if lab:
+            workspace_bookings = workspace_bookings.filter(workspace__lab=lab)
+            
+        # Filter by resource type
+        if resource_type == 'EQUIPMENT':
+            workspace_bookings = WorkspaceBooking.objects.none()
+        elif resource_type == 'WORKSPACE':
+            equipment_bookings = EquipmentBooking.objects.none()
+            
+        # Serialize bookings
+        equipment_data = EquipmentBookingSerializer(equipment_bookings, many=True).data
+        workspace_data = WorkspaceBookingSerializer(workspace_bookings, many=True).data
+        
+        # Combine results
+        all_bookings = []
+        
+        for booking in equipment_data:
+            booking['resource_type'] = 'EQUIPMENT'
+            all_bookings.append(booking)
+            
+        for booking in workspace_data:
+            booking['resource_type'] = 'WORKSPACE'
+            all_bookings.append(booking)
+            
+        # Sort by date
+        all_bookings.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        # Paginate results
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_bookings = all_bookings[start:end]
+        
+        return Response({
+            'results': paginated_bookings,
+            'count': len(all_bookings),
+            'next': f"/api/bookings/my_bookings/?page={page+1}&page_size={page_size}" if end < len(all_bookings) else None,
+            'previous': f"/api/bookings/my_bookings/?page={page-1}&page_size={page_size}" if page > 1 else None,
+        })
+    
+
+
+class ResourceAvailabilityView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Get parameters from the request
+        resource_type = request.query_params.get('resource_type')
+        resource_id = request.query_params.get('resource_id')
+        start_time_str = request.query_params.get('start_time')
+        end_time_str = request.query_params.get('end_time')
+        
+        # Validate parameters
+        if not all([resource_type, resource_id, start_time_str, end_time_str]):
+            return Response(
+                {"error": "Missing required parameters: resource_type, resource_id, start_time, end_time"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse timestamps
+        try:
+            # Parse the datetime strings
+            start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+            
+            # Extract the date and time components
+            start_date = start_time.date()
+            start_time_only = start_time.time()
+            end_date = end_time.date()
+            end_time_only = end_time.time()
+            
+        except ValueError:
+            return Response(
+                {"error": "Invalid datetime format. Please use ISO format (YYYY-MM-DDTHH:MM:SS)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if the resource is available
+        if resource_type == 'EQUIPMENT':
+            # Check if equipment exists
+            try:
+                from inventory.models import Equipment
+                equipment = Equipment.objects.get(id=resource_id)
+            except Equipment.DoesNotExist:
+                return Response(
+                    {"error": "Equipment not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if equipment status allows booking
+            if equipment.status not in ['AVAILABLE', 'IN_USE']:
+                return Response(
+                    {
+                        "available": False,
+                        "reason": f"Equipment is currently {equipment.get_status_display()}"
+                    }
+                )
+            
+            # Find all slots in the time range
+            slots = BookingSlot.objects.filter(
+                date__range=[start_date, end_date],
+                start_time__gte=start_time_only if start_date == end_date else '00:00:00',
+                end_time__lte=end_time_only if start_date == end_date else '23:59:59'
+            )
+            
+            # Check for existing bookings
+            existing_bookings = EquipmentBooking.objects.filter(
+                equipment_id=resource_id,
+                slot__in=slots,
+                status__in=['PENDING', 'APPROVED']
+            )
+            
+            if existing_bookings.exists():
+                return Response(
+                    {
+                        "available": False,
+                        "reason": "Equipment is already booked during this time period"
+                    }
+                )
+            
+        elif resource_type == 'WORKSPACE':
+            # Check if workspace exists
+            try:
+                workspace = Workspace.objects.get(id=resource_id)
+            except Workspace.DoesNotExist:
+                return Response(
+                    {"error": "Workspace not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if workspace is active
+            if not workspace.is_active:
+                return Response(
+                    {
+                        "available": False,
+                        "reason": "Workspace is currently inactive"
+                    }
+                )
+            
+            # Find all slots in the time range
+            slots = BookingSlot.objects.filter(
+                date__range=[start_date, end_date],
+                start_time__gte=start_time_only if start_date == end_date else '00:00:00',
+                end_time__lte=end_time_only if start_date == end_date else '23:59:59'
+            )
+            
+            # Check for existing bookings
+            existing_bookings = WorkspaceBooking.objects.filter(
+                workspace_id=resource_id,
+                slot__in=slots,
+                status__in=['PENDING', 'APPROVED']
+            )
+            
+            if existing_bookings.exists():
+                return Response(
+                    {
+                        "available": False,
+                        "reason": "Workspace is already booked during this time period"
+                    }
+                )
+            
+        else:
+            return Response(
+                {"error": "Invalid resource_type. Must be 'EQUIPMENT' or 'WORKSPACE'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # If we get here, the resource is available
+        return Response({"available": True})
+    
+class BookingsListView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Get query parameters
+        search = request.query_params.get('search', '')
+        status_param = request.query_params.get('status', '')
+        resource_type = request.query_params.get('resource_type', '')
+        lab = request.query_params.get('lab', '')
+        
+        try:
+            page = int(request.query_params.get('page', '1'))
+            page_size = int(request.query_params.get('page_size', '10'))
+        except ValueError:
+            page = 1
+            page_size = 10
+        
+        user = request.user
+        
+        # Get equipment bookings
+        if user.is_admin or user.is_lab_manager:
+            equipment_bookings = EquipmentBooking.objects.all()
+        elif user.is_technician:
+            equipment_bookings = EquipmentBooking.objects.filter(equipment__lab=user.lab)
+        else:
+            equipment_bookings = EquipmentBooking.objects.filter(user=user)
+        
+        # Apply filters
+        if search:
+            equipment_bookings = equipment_bookings.filter(
+                Q(equipment__name__icontains=search) |
+                Q(purpose__icontains=search) |
+                Q(project_name__icontains=search) |
+                Q(notes__icontains=search)
+            )
+        
+        if status_param:
+            equipment_bookings = equipment_bookings.filter(status=status_param)
+            
+        if lab:
+            equipment_bookings = equipment_bookings.filter(equipment__lab=lab)
+        
+        # Get workspace bookings
+        if user.is_admin or user.is_lab_manager:
+            workspace_bookings = WorkspaceBooking.objects.all()
+        elif user.is_technician:
+            workspace_bookings = WorkspaceBooking.objects.filter(workspace__lab=user.lab)
+        else:
+            workspace_bookings = WorkspaceBooking.objects.filter(user=user)
+        
+        # Apply filters
+        if search:
+            workspace_bookings = workspace_bookings.filter(
+                Q(workspace__name__icontains=search) |
+                Q(purpose__icontains=search) |
+                Q(project_name__icontains=search) |
+                Q(notes__icontains=search)
+            )
+        
+        if status_param:
+            workspace_bookings = workspace_bookings.filter(status=status_param)
+            
+        if lab:
+            workspace_bookings = workspace_bookings.filter(workspace__lab=lab)
+            
+        # Filter by resource type if specified
+        if resource_type == 'EQUIPMENT':
+            workspace_bookings = WorkspaceBooking.objects.none()
+        elif resource_type == 'WORKSPACE':
+            equipment_bookings = EquipmentBooking.objects.none()
+            
+        # Serialize bookings
+        equipment_data = EquipmentBookingSerializer(equipment_bookings, many=True).data
+        workspace_data = WorkspaceBookingSerializer(workspace_bookings, many=True).data
+        
+        # Combine results
+        all_bookings = []
+        
+        for booking in equipment_data:
+            booking['resource_type'] = 'EQUIPMENT'
+            all_bookings.append(booking)
+            
+        for booking in workspace_data:
+            booking['resource_type'] = 'WORKSPACE'
+            all_bookings.append(booking)
+            
+        # Sort by created_at (newest first)
+        all_bookings.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        # Total count before pagination
+        total_count = len(all_bookings)
+        
+        # Apply pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_bookings = all_bookings[start:end]
+        
+        # Build pagination URLs
+        base_url = "/api/bookings/"
+        query_params = request.query_params.copy()
+        
+        # Calculate next page URL
+        next_page_url = None
+        if end < total_count:
+            query_params['page'] = page + 1
+            next_page_url = f"{base_url}?{query_params.urlencode()}"
+        
+        # Calculate previous page URL
+        previous_page_url = None
+        if page > 1:
+            query_params['page'] = page - 1
+            previous_page_url = f"{base_url}?{query_params.urlencode()}"
+        
+        return Response({
+            'results': paginated_bookings,
+            'count': total_count,
+            'next': next_page_url,
+            'previous': previous_page_url,
+        })

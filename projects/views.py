@@ -46,6 +46,23 @@ class ProjectViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['get'])
+    def team_members(self, request, pk=None):
+        project = self.get_object()
+        
+        # Get team members
+        members = project.team_members.all()
+        
+        # Import User model and serializer
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        from users.serializers import UserSerializer
+        
+        # Serialize the team members
+        serializer = UserSerializer(members, many=True)
+        
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def add_team_member(self, request, pk=None):
@@ -120,6 +137,74 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+    @action(detail=True, methods=['get'])
+    def documents(self, request, pk=None):
+        project = self.get_object()
+        
+        # Get documents for this project
+        documents = ProjectDocument.objects.filter(project=project)
+        
+        # Serialize the documents
+        serializer = ProjectDocumentSerializer(documents, many=True)
+        
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def statistics(self, request, pk=None):
+        project = self.get_object()
+        
+        # Calculate project statistics
+        total_documents = project.documents.count()
+        total_tasks = project.tasks.count()
+        completed_tasks = project.tasks.filter(status='COMPLETED').count()
+        
+        # Task completion percentage
+        task_completion_percentage = 0
+        if total_tasks > 0:
+            task_completion_percentage = (completed_tasks / total_tasks) * 100
+        
+        # Get team size
+        team_size = project.team_members.count() + 1  # Including project creator
+        
+        # Get resource utilization
+        resource_count = project.resources.count()
+        
+        # Calculate days since project start
+        days_active = 0
+        if project.start_date:
+            start_date = project.start_date
+            today = timezone.now().date()
+            days_active = (today - start_date).days
+        
+        # Calculate days remaining
+        days_remaining = None
+        if project.end_date:
+            end_date = project.end_date
+            today = timezone.now().date()
+            days_remaining = (end_date - today).days
+        
+        # Return statistics object
+        statistics = {
+            'project_id': project.id,
+            'project_title': project.title,
+            'status': project.status,
+            'days_active': days_active,
+            'days_remaining': days_remaining,
+            'team_size': team_size,
+            'total_tasks': total_tasks,
+            'completed_tasks': completed_tasks,
+            'task_completion_percentage': task_completion_percentage,
+            'total_documents': total_documents,
+            'resource_count': resource_count,
+            'created_by': {
+                'id': project.created_by.id,
+                'name': project.created_by.get_full_name() or project.created_by.username
+            },
+            'lab': project.lab
+        }
+        
+        return Response(statistics)
 
 class ProjectDocumentViewSet(viewsets.ModelViewSet):
     queryset = ProjectDocument.objects.all()

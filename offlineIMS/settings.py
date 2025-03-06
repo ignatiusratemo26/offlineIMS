@@ -174,3 +174,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only for development. Set specific origins in production
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOWCORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Your React development server
+    # Add your production domains
+]

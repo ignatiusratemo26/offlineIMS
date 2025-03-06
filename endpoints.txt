@@ -1,0 +1,51 @@
+## API Endpoints Summary
+
+### User Management
+- `POST /api/users/token/` - Obtain JWT tokens (login)
+- `POST /api/users/token/refresh/` - Refresh JWT token
+- `GET /api/users/` - List all users (filtered by permissions)
+- `POST /api/users/` - Create new user (admin only)
+- `GET /api/users/{id}/` - Get user details
+- `PUT/PATCH /api/users/{id}/` - Update user
+- `DELETE /api/users/{id}/` - Delete user
+- `GET /api/users/me/` - Get current user profile
+- `GET /api/users/lab_users/?lab=LAB_CODE` - Get users from specific lab
+
+### Inventory Management
+- `GET /api/inventory/categories/` - List categories
+- `POST /api/inventory/categories/` - Create category
+- `GET /api/inventory/equipment/` - List equipment
+- `POST /api/inventory/equipment/` - Create equipment
+- `GET /api/inventory/equipment/{id}/` - Get equipment details
+- `PUT/PATCH /api/inventory/equipment/{id}/` - Update equipment
+- `POST /api/inventory/equipment/{id}/checkout/` - Check out equipment
+- `POST /api/inventory/equipment/{id}/checkin/` - Check in equipment
+- `POST /api/inventory/equipment/{id}/schedule_maintenance/` - Schedule maintenance
+- `POST /api/inventory/equipment/{id}/complete_maintenance/` - Complete maintenance
+- `POST /api/inventory/equipment/{id}/transfer/` - Transfer equipment between labs
+- `GET /api/inventory/maintenance/` - List maintenance records
+- `GET /api/inventory/usage_logs/` - List equipment usage logs
+
+### Project Management
+- `GET /api/projects/` - List projects
+- `POST /api/projects/` - Create project
+- `GET /api/projects/{id}/` - Get project details
+- `PUT/PATCH /api/projects/{id}/` - Update project
+- `GET /api/projects/{id}/members/` - List project members
+- `POST /api/projects/{id}/members/` - Add project member
+- `GET /api/projects/{id}/documents/` - List project documents
+- `POST /api/projects/{id}/documents/` - Upload project document
+
+### Booking System
+- `GET /api/bookings/` - List bookings
+- `POST /api/bookings/` - Create booking
+- `GET /api/bookings/{id}/` - Get booking details
+- `PUT/PATCH /api/bookings/{id}/` - Update booking
+- `DELETE /api/bookings/{id}/` - Cancel booking
+- `GET /api/bookings/workspaces/` - List workspaces
+- `GET /api/bookings/availability/` - Check resource availability
+
+### Integration
+- `GET /api/integration/shared_inventory/` - Get shared inventory across labs
+- `GET /api/integration/sync_status/` - Check data sync status
+- `POST /api/integration/sync/` - Trigger manual data sync between labs

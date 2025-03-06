@@ -1,0 +1,197 @@
+Here's a brief data model diagram of the system's database that shows the relationships, fields, and attributes for easy communication with collaborators and stakeholders:
+
+```mermaid
+erDiagram
+    User {
+        id integer PK
+        username string
+        password string
+        email string
+        first_name string
+        last_name string
+        role enum "ADMIN, TECHNICIAN, STUDENT, LAB_MANAGER"
+        lab enum "IVE, CEZERI, MEDTECH"
+        phone_number string
+        profile_picture image
+    }
+
+    Category {
+        id integer PK
+        name string
+        description text
+    }
+
+    Equipment {
+        id integer PK
+        name string
+        description text
+        serial_number string
+        barcode string
+        status enum "AVAILABLE, IN_USE, MAINTENANCE, SHARED"
+        lab enum "IVE, CEZERI, MEDTECH"
+        location string
+        purchase_date date
+        last_maintenance_date date
+        next_maintenance_date date
+        image image
+        category_id integer FK
+    }
+
+    MaintenanceRecord {
+        id integer PK
+        equipment_id integer FK
+        maintenance_date date
+        description text
+        performed_by_id integer FK
+        is_completed boolean
+        notes text
+        created_at datetime
+    }
+
+    EquipmentUsageLog {
+        id integer PK
+        equipment_id integer FK
+        user_id integer FK
+        check_out_time datetime
+        check_in_time datetime
+        purpose text
+        notes text
+    }
+
+    EquipmentTransfer {
+        id integer PK
+        equipment_id integer FK
+        from_lab string
+        to_lab string
+        transferred_by_id integer FK
+        transfer_date datetime
+        return_date datetime
+        notes text
+    }
+
+    Project {
+        id integer PK
+        name string
+        description text
+        status enum "ACTIVE, PENDING, COMPLETED"
+        start_date date
+        end_date date
+        created_by_id integer FK
+        lab enum "IVE, CEZERI, MEDTECH"
+    }
+
+    ProjectMember {
+        id integer PK
+        project_id integer FK
+        user_id integer FK
+        role string
+    }
+
+    ProjectDocument {
+        id integer PK
+        project_id integer FK
+        title string
+        file file
+        uploaded_by_id integer FK
+        uploaded_at datetime
+        description text
+    }
+
+    Booking {
+        id integer PK
+        resource_type enum "EQUIPMENT, WORKSPACE"
+        equipment_id integer FK
+        workspace_id integer FK
+        user_id integer FK
+        project_id integer FK
+        start_time datetime
+        end_time datetime
+        status enum "PENDING, APPROVED, REJECTED, CANCELLED"
+        purpose text
+        notes text
+    }
+
+    Workspace {
+        id integer PK
+        name string
+        lab enum "IVE, CEZERI, MEDTECH" 
+        capacity integer
+        description text
+        status enum "AVAILABLE, OCCUPIED, MAINTENANCE"
+        location string
+    }
+
+    Category ||--o{ Equipment : "has"
+    Equipment ||--o{ MaintenanceRecord : "has"
+    Equipment ||--o{ EquipmentUsageLog : "has"
+    Equipment ||--o{ EquipmentTransfer : "involved_in"
+    User ||--o{ MaintenanceRecord : "performs"
+    User ||--o{ EquipmentUsageLog : "creates"
+    User ||--o{ EquipmentTransfer : "performs"
+    User ||--o{ Project : "creates"
+    User ||--o{ ProjectMember : "is"
+    Project ||--o{ ProjectMember : "has"
+    Project ||--o{ ProjectDocument : "has"
+    User ||--o{ ProjectDocument : "uploads"
+    User ||--o{ Booking : "makes"
+    Project ||--o{ Booking : "requires"
+    Equipment ||--o{ Booking : "can_be_booked"
+    Workspace ||--o{ Booking : "can_be_booked"
+
+```
+
+## API Endpoints Summary
+
+Here's a list of the main API endpoints implemented in the backend system:
+
+### User Management
+- `POST /api/users/token/` - Obtain JWT tokens (login)
+- `POST /api/users/token/refresh/` - Refresh JWT token
+- `GET /api/users/` - List all users (filtered by permissions)
+- `POST /api/users/` - Create new user (admin only)
+- `GET /api/users/{id}/` - Get user details
+- `PUT/PATCH /api/users/{id}/` - Update user
+- `DELETE /api/users/{id}/` - Delete user
+- `GET /api/users/me/` - Get current user profile
+- `GET /api/users/lab_users/?lab=LAB_CODE` - Get users from specific lab
+
+### Inventory Management
+- `GET /api/inventory/categories/` - List categories
+- `POST /api/inventory/categories/` - Create category
+- `GET /api/inventory/equipment/` - List equipment
+- `POST /api/inventory/equipment/` - Create equipment
+- `GET /api/inventory/equipment/{id}/` - Get equipment details
+- `PUT/PATCH /api/inventory/equipment/{id}/` - Update equipment
+- `POST /api/inventory/equipment/{id}/checkout/` - Check out equipment
+- `POST /api/inventory/equipment/{id}/checkin/` - Check in equipment
+- `POST /api/inventory/equipment/{id}/schedule_maintenance/` - Schedule maintenance
+- `POST /api/inventory/equipment/{id}/complete_maintenance/` - Complete maintenance
+- `POST /api/inventory/equipment/{id}/transfer/` - Transfer equipment between labs
+- `GET /api/inventory/maintenance/` - List maintenance records
+- `GET /api/inventory/usage_logs/` - List equipment usage logs
+
+### Project Management
+- `GET /api/projects/` - List projects
+- `POST /api/projects/` - Create project
+- `GET /api/projects/{id}/` - Get project details
+- `PUT/PATCH /api/projects/{id}/` - Update project
+- `GET /api/projects/{id}/members/` - List project members
+- `POST /api/projects/{id}/members/` - Add project member
+- `GET /api/projects/{id}/documents/` - List project documents
+- `POST /api/projects/{id}/documents/` - Upload project document
+
+### Booking System
+- `GET /api/bookings/` - List bookings
+- `POST /api/bookings/` - Create booking
+- `GET /api/bookings/{id}/` - Get booking details
+- `PUT/PATCH /api/bookings/{id}/` - Update booking
+- `DELETE /api/bookings/{id}/` - Cancel booking
+- `GET /api/bookings/workspaces/` - List workspaces
+- `GET /api/bookings/availability/` - Check resource availability
+
+### Integration
+- `GET /api/integration/shared_inventory/` - Get shared inventory across labs
+- `GET /api/integration/sync_status/` - Check data sync status
+- `POST /api/integration/sync/` - Trigger manual data sync between labs
+
+This data model represents a comprehensive offline information management system with role-based access control, inventory management, project tracking, resource booking, and lab integration features as specified in the requirements.
